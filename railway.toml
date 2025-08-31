@@ -1,0 +1,14 @@
+[build]
+builder = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[variables]
+PORT = "3000"
+DEFAULT_COUNTRY_CODE = "54"
+FORCE_ARG_MOBILE_PREFIX = "0"
+ALLOW_GROUPS = "0" 
