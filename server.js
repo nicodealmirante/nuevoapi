@@ -16,7 +16,7 @@ async function startSock () {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   sock = makeWASocket({
     auth: state,
-    browser: ['Chatwoot Relay', 'Chrome', '1.2'],
+    browser: ['Chatwoot Relay', 'Chrome', '1.3'],
     markOnlineOnConnect: false,
     syncFullHistory: false
   })
@@ -47,11 +47,11 @@ async function startSock () {
 }
 
 // ====== HELPERS ======
-function onlyDigits (s = '') { return (s + '').replace(/\D+/g, '') }
+function onlyDigits (s = '') { return String(s).replace(/\D+/g, '') }
 
 function normalizePhone (raw) {
   if (!raw) return null
-  if (typeof raw === 'string' && raw.endsWith('@s.whatsapp.net')) return raw
+  if (typeof raw === 'string' && (raw.endsWith('@s.whatsapp.net') || raw.endsWith('@g.us'))) return raw
   let n = onlyDigits(raw)
   if (!n) return null
   if (n.startsWith('0')) n = n.replace(/^0+/, '')
@@ -63,23 +63,24 @@ function normalizePhone (raw) {
   return `${n}@s.whatsapp.net`
 }
 
-function extractFromChatwoot (body) {
-  // Simple: { phone, message } — o payloads típicos de Chatwoot
-  const simplePhone = body.phone || body.to || body.number
-  const simpleMsg   = body.message || body.text || body.content
+function extractFromChatwoot (raw) {
+  const b = raw?.payload || raw?.data || raw || {}
+  const phone =
+    b.phone || b.to || b.number ||
+    b?.contact?.phone_number ||
+    b?.conversation?.contact?.phone_number ||
+    b?.conversation?.contact_inbox?.contact?.phone_number ||
+    b?.sender?.phone_number ||
+    b?.message?.sender?.phone_number ||
+    b?.meta?.sender?.phone_number ||
+    b?.conversation?.meta?.sender?.phone_number
 
-  let phone = simplePhone
-  let message = simpleMsg
+  let message =
+    b?.message?.content ??
+    b?.content ??
+    (Array.isArray(b?.messages) ? b.messages[0]?.content : undefined) ??
+    b?.conversation?.messages?.[0]?.content
 
-  if (!phone) {
-    phone = body?.sender?.phone_number
-      || body?.conversation?.meta?.sender?.phone_number
-      || body?.contact?.phone_number
-      || body?.conversation?.contact_inbox?.contact?.phone_number
-  }
-  if (!message) {
-    message = body?.message?.content || body?.content || body?.messages?.[0]?.content
-  }
   return { phone, message }
 }
 
@@ -112,15 +113,18 @@ app.post('/webhooks/chatwoot', async (req, res) => {
   try {
     const { phone, message } = extractFromChatwoot(req.body)
     if (!phone || !message) {
+      log.warn({ body: req.body }, 'Payload incompleto (falta phone o message)')
       return res.status(400).json({ ok: false, error: 'Faltan campos: phone y message' })
     }
     const jid = normalizePhone(phone)
-    if (!jid) return res.status(400).json({ ok: false, error: 'Número inválido' })
-
+    if (!jid) {
+      log.warn({ phone }, 'Número inválido tras normalizar')
+      return res.status(400).json({ ok: false, error: 'Número inválido' })
+    }
     await sendText(jid, message)
     return res.json({ ok: true, to: jid })
   } catch (err) {
-    log.error({ err }, 'Fallo enviando mensaje')
+    log.error({ err, body: req.body }, 'Fallo enviando mensaje')
     return res.status(500).json({ ok: false, error: err?.message || 'Error interno' })
   }
 })
