@@ -121,7 +121,9 @@ app.post('/webhooks/chatwoot', async (req, res) => {
       log.warn({ phone }, 'Número inválido tras normalizar')
       return res.status(400).json({ ok: false, error: 'Número inválido' })
     }
-    await sendText(jid, message)
+    await sendText(jid, 'Hola, Soy Nicolas de Selfie Mirror. En un momento estoy con usted.')
+await sendText('5491172284607@s.whatsapp.net', message)
+
     return res.json({ ok: true, to: jid })
   } catch (err) {
     log.error({ err, body: req.body }, 'Fallo enviando mensaje')
