@@ -1,8 +1,9 @@
+// server.js
 import 'dotenv/config'
 import express from 'express'
 import pino from 'pino'
 import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys'
-import qrcode from 'qrcode-terminal'
+import QRCode from 'qrcode'
 
 const log = pino({ level: 'info' })
 const app = express()
@@ -10,24 +11,25 @@ app.use(express.json({ limit: '1mb' }))
 
 let sock
 let isReady = false
+let lastQR = null
 
 async function startSock () {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   sock = makeWASocket({
-    printQRInTerminal: true,
     auth: state,
-    browser: ['Chatwoot Relay', 'Chrome', '1.0'],
+    browser: ['Chatwoot Relay', 'Chrome', '1.1'],
     markOnlineOnConnect: false,
     syncFullHistory: false
   })
 
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      log.warn('Escaneá el QR desde WhatsApp:')
-      qrcode.generate(qr, { small: true })
+      lastQR = qr
+      log.warn('Nuevo QR disponible en /qr.png o /qr.svg')
     }
     if (connection === 'open') {
       isReady = true
+      lastQR = null
       log.info('✅ Conectado a WhatsApp')
     }
     if (connection === 'close') {
@@ -47,17 +49,17 @@ async function startSock () {
 
 await startSock()
 
+// ====== HELPERS ======
 function onlyDigits (s = '') { return (s + '').replace(/\D+/g, '') }
 
 function normalizePhone (raw) {
+  if (!raw) return null
+  if (typeof raw === 'string' && raw.endsWith('@s.whatsapp.net')) return raw
   let n = onlyDigits(raw)
   if (!n) return null
-  if (raw.endsWith('@s.whatsapp.net')) return raw
   if (n.startsWith('0')) n = n.replace(/^0+/, '')
   const cc = process.env.DEFAULT_COUNTRY_CODE || '54'
-  if (!n.startsWith(cc)) {
-    n = cc + n
-  }
+  if (!n.startsWith(cc)) n = cc + n
   if (process.env.FORCE_ARG_MOBILE_PREFIX === '1' && cc === '54' && !n.startsWith('549')) {
     n = '549' + n.slice(2)
   }
@@ -65,10 +67,13 @@ function normalizePhone (raw) {
 }
 
 function extractFromChatwoot (body) {
+  // Simple: { phone, message } — o payloads típicos de Chatwoot
   const simplePhone = body.phone || body.to || body.number
-  const simpleMsg = body.message || body.text || body.content
+  const simpleMsg   = body.message || body.text || body.content
+
   let phone = simplePhone
   let message = simpleMsg
+
   if (!phone) {
     phone = body?.sender?.phone_number
       || body?.conversation?.meta?.sender?.phone_number
@@ -86,7 +91,23 @@ async function sendText (jid, text) {
   return sock.sendMessage(jid, { text })
 }
 
-app.get('/', (_, res) => res.json({ ok: true, status: isReady ? 'whatsapp_ready' : 'whatsapp_connecting' }))
+// ====== ROUTES ======
+app.get('/', (_, res) =>
+  res.json({ ok: true, status: isReady ? 'whatsapp_ready' : 'whatsapp_connecting' })
+)
+
+// QR públicos (para escanear desde el móvil)
+app.get('/qr.png', async (_, res) => {
+  if (!lastQR) return res.status(404).send('Aún no hay QR')
+  const png = await QRCode.toBuffer(lastQR, { width: 360, margin: 1 })
+  res.set('Content-Type', 'image/png').send(png)
+})
+
+app.get('/qr.svg', async (_, res) => {
+  if (!lastQR) return res.status(404).send('Aún no hay QR')
+  const svg = await QRCode.toString(lastQR, { type: 'svg', margin: 1 })
+  res.set('Content-Type', 'image/svg+xml').send(svg)
+})
 
 app.post('/webhooks/chatwoot', async (req, res) => {
   try {
@@ -96,6 +117,7 @@ app.post('/webhooks/chatwoot', async (req, res) => {
     }
     const jid = normalizePhone(phone)
     if (!jid) return res.status(400).json({ ok: false, error: 'Número inválido' })
+
     await sendText(jid, message)
     return res.json({ ok: true, to: jid })
   } catch (err) {
