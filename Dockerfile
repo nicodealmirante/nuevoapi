@@ -1,6 +1,9 @@
 FROM node:20-alpine
 WORKDIR /app
 
+# 👉 agrega git (y ca-certificates por las dudas)
+RUN apk add --no-cache git ca-certificates
+
 COPY package*.json ./
 RUN npm i --omit=dev
 
