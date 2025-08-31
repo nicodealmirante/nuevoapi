@@ -122,7 +122,7 @@ app.post('/webhooks/chatwoot', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Número inválido' })
     }
     await sendText(jid, 'Hola, Soy Nicolas de Selfie Mirror. En un momento estoy con usted.')
-await sendText('5491172284607@s.whatsapp.net', message)
+await sendText('5491159132301@s.whatsapp.net', jid)
 
     return res.json({ ok: true, to: jid })
   } catch (err) {
