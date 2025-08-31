@@ -1,4 +1,3 @@
-// server.js
 import 'dotenv/config'
 import express from 'express'
 import pino from 'pino'
@@ -17,7 +16,7 @@ async function startSock () {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   sock = makeWASocket({
     auth: state,
-    browser: ['Chatwoot Relay', 'Chrome', '1.1'],
+    browser: ['Chatwoot Relay', 'Chrome', '1.2'],
     markOnlineOnConnect: false,
     syncFullHistory: false
   })
@@ -46,8 +45,6 @@ async function startSock () {
 
   sock.ev.on('creds.update', saveCreds)
 }
-
-await startSock()
 
 // ====== HELPERS ======
 function onlyDigits (s = '') { return (s + '').replace(/\D+/g, '') }
@@ -92,6 +89,8 @@ async function sendText (jid, text) {
 }
 
 // ====== ROUTES ======
+app.get('/healthz', (_, res) => res.status(200).send('ok'))
+
 app.get('/', (_, res) =>
   res.json({ ok: true, status: isReady ? 'whatsapp_ready' : 'whatsapp_connecting' })
 )
@@ -127,4 +126,7 @@ app.post('/webhooks/chatwoot', async (req, res) => {
 })
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => log.info(`HTTP listo en :${PORT}`))
+app.listen(PORT, '0.0.0.0', () => {
+  log.info(`HTTP listo en :${PORT}`)
+  startSock().catch(err => log.error({ err }, 'Fallo iniciando Baileys'))
+})
